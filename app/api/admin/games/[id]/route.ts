@@ -1,3 +1,24 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth'
-export async function POST(request:Request,{params}:{params:Promise<{id:string}>}){const {supabase}=await requireAdmin();const form=await request.formData();const status=String(form.get('status'));if(!['published','rejected'].includes(status))return NextResponse.json({error:'Invalid status'},{status:400});const {id}=await params;const {error}=await supabase.from('games').update({status,reviewed_at:new Date().toISOString()}).eq('id',id);if(error)return NextResponse.json({error:error.message},{status:400});return NextResponse.redirect(new URL('/admin',request.url))}
+
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { supabase } = await requireAdmin()
+  const form = await request.formData()
+  const status = String(form.get('status'))
+  const { id } = await params
+
+  if (!['published', 'rejected'].includes(status)) {
+    return NextResponse.json({ error: 'Invalid status' }, { status: 400 })
+  }
+
+  const { error } = await supabase
+    .from('games')
+    .update({ status, reviewed_at: new Date().toISOString() })
+    .eq('id', id)
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 })
+  }
+
+  return NextResponse.redirect(new URL('/admin', request.url))
+}
