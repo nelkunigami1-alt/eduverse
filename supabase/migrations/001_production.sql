@@ -1,0 +1,20 @@
+create extension if not exists pgcrypto;
+
+do $$ begin create type public.user_role as enum ('player','developer','moderator','admin'); exception when duplicate_object then null; end $$;
+do $$ begin create type public.game_status as enum ('draft','pending','published','rejected','unpublished'); exception when duplicate_object then null; end $$;
+create table if not exists public.profiles(id uuid primary key references auth.users(id) on delete cascade,username text not null unique,role public.user_role not null default 'player',coins integer not null default 0,score bigint not null default 0,created_at timestamptz not null default now());
+create table if not exists public.games(id uuid primary key default gen_random_uuid(),creator_id uuid not null references public.profiles(id) on delete cascade,title text not null,description text not null,category text not null default 'Science',code text not null,status public.game_status not null default 'draft',created_at timestamptz not null default now(),reviewed_at timestamptz);
+alter table public.games add column if not exists category text not null default 'Science';
+create table if not exists public.scores(id bigint generated always as identity primary key,user_id uuid not null references public.profiles(id) on delete cascade,game_id uuid not null references public.games(id) on delete cascade,score integer not null check(score>=0),created_at timestamptz not null default now());
+alter table public.profiles enable row level security; alter table public.games enable row level security; alter table public.scores enable row level security;
+create or replace function public.is_admin() returns boolean language sql security definer set search_path=public stable as $$ select exists(select 1 from public.profiles where id=auth.uid() and role in ('admin','moderator')); $$;
+drop policy if exists "profiles readable" on public.profiles; create policy "profiles readable" on public.profiles for select to authenticated using(true);
+drop policy if exists "own profile update" on public.profiles; create policy "own profile update" on public.profiles for update to authenticated using(auth.uid()=id) with check(auth.uid()=id);
+drop policy if exists "published games readable" on public.games; create policy "published games readable" on public.games for select to authenticated using(status='published' or creator_id=auth.uid() or public.is_admin());
+drop policy if exists "creators submit" on public.games; create policy "creators submit" on public.games for insert to authenticated with check(creator_id=auth.uid());
+drop policy if exists "creators edit drafts" on public.games; create policy "creators edit drafts" on public.games for update to authenticated using((creator_id=auth.uid() and status in('draft','rejected')) or public.is_admin()) with check((creator_id=auth.uid() and status in('draft','pending','rejected')) or public.is_admin());
+drop policy if exists "admin delete games" on public.games; create policy "admin delete games" on public.games for delete to authenticated using(public.is_admin());
+drop policy if exists "scores readable" on public.scores; create policy "scores readable" on public.scores for select to authenticated using(true);
+drop policy if exists "own scores insert" on public.scores; create policy "own scores insert" on public.scores for insert to authenticated with check(user_id=auth.uid());
+create or replace function public.handle_new_user() returns trigger language plpgsql security definer set search_path=public as $$ begin insert into public.profiles(id,username,role) values(new.id,coalesce(new.raw_user_meta_data->>'username',split_part(new.email,'@',1)),case when lower(new.email)=lower(coalesce(current_setting('app.admin_email',true),'nelkunigami1@gmail.com')) then 'admin'::public.user_role else 'player'::public.user_role end) on conflict(id) do nothing; return new; end; $$;
+drop trigger if exists on_auth_user_created on auth.users; create trigger on_auth_user_created after insert on auth.users for each row execute procedure public.handle_new_user();
