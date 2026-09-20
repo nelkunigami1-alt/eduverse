@@ -1,0 +1,2 @@
+import { signup } from './actions'
+export default function Signup(){return <main className="auth"><form action={signup} className="card"><h1>Create account</h1><label>Username<input name="username" required minLength={3}/></label><label>Email<input name="email" type="email" required/></label><label>Password<input name="password" type="password" required minLength={8}/></label><button className="button">Create account</button><p><a href="/login">Already have an account?</a></p></form></main>}

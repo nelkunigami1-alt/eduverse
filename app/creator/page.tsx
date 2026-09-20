@@ -1,0 +1,2 @@
+import { requireUser } from '@/lib/auth'
+export default async function Creator(){await requireUser();return <main className="shell"><h1>Create a game</h1><form className="card" action="/api/games" method="post"><label>Title<input name="title" required/></label><label>Description<textarea name="description" required/></label><label>Game code<textarea name="code" required placeholder="Reviewed before publication"/></label><button className="button">Submit for review</button></form></main>}

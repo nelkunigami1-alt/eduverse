@@ -1,0 +1,18 @@
+create extension if not exists pgcrypto;
+create type public.user_role as enum ('player','developer','moderator','admin');
+create type public.game_status as enum ('draft','pending','published','rejected','unpublished');
+create table public.profiles(id uuid primary key references auth.users(id) on delete cascade,username text not null unique,role public.user_role not null default 'player',coins integer not null default 0,score bigint not null default 0,created_at timestamptz not null default now());
+create table public.games(id uuid primary key default gen_random_uuid(),creator_id uuid not null references public.profiles(id) on delete cascade,title text not null,description text not null,code text not null,status public.game_status not null default 'draft',created_at timestamptz not null default now(),reviewed_at timestamptz);
+create table public.scores(id bigint generated always as identity primary key,user_id uuid not null references public.profiles(id) on delete cascade,game_id uuid not null references public.games(id) on delete cascade,score integer not null check(score>=0),created_at timestamptz not null default now());
+alter table public.profiles enable row level security;
+alter table public.games enable row level security;
+alter table public.scores enable row level security;
+create policy "profiles readable" on public.profiles for select to authenticated using(true);
+create policy "own profile update" on public.profiles for update to authenticated using(auth.uid()=id);
+create policy "published games readable" on public.games for select to authenticated using(status='published' or creator_id=auth.uid());
+create policy "creators submit" on public.games for insert to authenticated with check(creator_id=auth.uid());
+create policy "creators edit drafts" on public.games for update to authenticated using(creator_id=auth.uid() and status in('draft','rejected'));
+create policy "scores readable" on public.scores for select to authenticated using(true);
+create policy "own scores insert" on public.scores for insert to authenticated with check(user_id=auth.uid());
+create or replace function public.handle_new_user() returns trigger language plpgsql security definer set search_path=public as $$ begin insert into public.profiles(id,username,role) values(new.id,coalesce(new.raw_user_meta_data->>'username',split_part(new.email,'@',1)),case when lower(new.email)=lower(current_setting('app.admin_email',true)) then 'admin'::public.user_role else 'player'::public.user_role end);return new;end;$$;
+create trigger on_auth_user_created after insert on auth.users for each row execute procedure public.handle_new_user();
